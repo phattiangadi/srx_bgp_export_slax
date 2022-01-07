@@ -1,0 +1,83 @@
+version 1.0;
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+import "../import/junos.xsl";
+match / {
+  <op-script-results> {
+
+    var $exportGrpName = "EXPORT_GRP";
+
+    var $failXml = {
+        <configuration> {
+             <protocols> {
+                <bgp> {
+                    <group> {
+                        <name> $exportGrpName;
+                        <export delete="delete">;
+                    }
+              }
+            }
+            <protocols> {
+                <bgp> {
+                    <group> {
+                        <name> $exportGrpName;
+                        <export> {
+                            <name> "DENY";
+                        }  
+                    }
+                }
+            }
+        }
+    }
+
+    var $EstablishedXml = {
+        <configuration> {
+            <protocols> {
+                <bgp> {
+                    <group>{
+                        <name> $exportGrpName;
+                        <export replace="replace"> {
+                            <name> "PERMIT";
+                        }  
+                    }
+                }
+            }
+        }
+    }
+
+
+    mvar $notEstablished = "False";
+
+    var $get-bgp-summary-rpc = <get-bgp-summary-information>;
+
+    var $smyRes = jcs:invoke( $get-bgp-summary-rpc );
+/*    copy-of $smyRes;  */
+
+    for-each($smyRes/bgp-peer){
+       if (./peer-state != "Established"){
+          set $notEstablished = "True";
+       }
+    }
+
+    var $con = jcs:open();
+    if ($notEstablished == "True" ) {
+       var $string-content="One or more BGP peers are not established and hence not exporting the routes\n";
+       <output> $string-content;
+       expr jcs:syslog("user.debug", $string-content);
+       var $result1= {
+         call jcs:load-configuration($action="merge", $connection = $con, $configuration = $failXml );
+       }
+    } 
+    else {
+       var $string-content2="All BGP peers are established and hence exporting the routes\n";
+       <output> $string-content2;
+       expr jcs:syslog("user.debug", $string-content2);
+       var $result5= {
+         call jcs:load-configuration($action="replace", $connection = $con, $configuration = $EstablishedXml );
+       }
+    }
+ 
+    expr jcs:close($con);
+  }
+}
